@@ -22,11 +22,29 @@ class Settings(BaseSettings):
     outbox_claim_seconds: int = Field(default=15, ge=1)
     outbox_publish_timeout: float = Field(default=5, gt=0)
     outbox_retry_delay: float = Field(default=1, gt=0)
+    processing_claim_seconds: int = Field(default=15, ge=1)
+    processing_claim_poll_interval: float = Field(default=0.1, gt=0)
+    payment_processing_min_delay: float = Field(default=2, ge=0)
+    payment_processing_max_delay: float = Field(default=5, ge=0)
+    payment_processing_success_rate: float = Field(default=0.9, ge=0, le=1)
+    webhook_timeout: float = Field(default=5, gt=0)
 
     @model_validator(mode="after")
-    def validate_outbox_claim_duration(self) -> Self:
+    def validate_timing_constraints(self) -> Self:
         if self.outbox_claim_seconds <= self.outbox_publish_timeout:
             raise ValueError("OUTBOX_CLAIM_SECONDS must exceed OUTBOX_PUBLISH_TIMEOUT")
+        if self.payment_processing_min_delay > self.payment_processing_max_delay:
+            raise ValueError(
+                "PAYMENT_PROCESSING_MIN_DELAY must not exceed PAYMENT_PROCESSING_MAX_DELAY"
+            )
+        if (
+            self.processing_claim_seconds
+            <= self.payment_processing_max_delay + self.webhook_timeout
+        ):
+            raise ValueError(
+                "PROCESSING_CLAIM_SECONDS must exceed PAYMENT_PROCESSING_MAX_DELAY "
+                "plus WEBHOOK_TIMEOUT"
+            )
 
         return self
 

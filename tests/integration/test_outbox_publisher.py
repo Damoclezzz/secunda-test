@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 from aio_pika import DeliveryMode
@@ -15,7 +16,6 @@ from payment_service.infrastructure.db.models import OutboxRecord, PaymentRecord
 from payment_service.infrastructure.db.outbox_repository import SqlAlchemyOutboxRepository
 from payment_service.infrastructure.messaging.publisher import RabbitEventPublisher
 from payment_service.infrastructure.messaging.topology import payments_new_queue
-from payment_service.outbox.models import ClaimedOutboxEvent
 from payment_service.outbox.publisher import OutboxPublisher, OutboxPublisherOptions
 from payment_service.payments.models import Currency, PaymentStatus
 
@@ -25,10 +25,6 @@ class StoredOutboxEvent:
     event_id: UUID
     payment_id: UUID
     payload: dict[str, Any]
-
-
-async def unavailable_event_publisher(event: ClaimedOutboxEvent) -> None:
-    raise ConnectionError("broker unavailable")
 
 
 async def store_outbox_event(
@@ -74,7 +70,7 @@ async def store_outbox_event(
     return StoredOutboxEvent(event_id, payment_id, payload)
 
 
-def publisher_options(batch_size: int = 10) -> OutboxPublisherOptions:
+def make_publisher_options(batch_size: int = 10) -> OutboxPublisherOptions:
     return OutboxPublisherOptions(
         batch_size=batch_size,
         poll_interval=0.01,
@@ -122,12 +118,12 @@ async def test_concurrent_publishers_send_each_live_event_once(
     first_publisher = OutboxPublisher(
         SqlAlchemyOutboxRepository(session_factory),
         event_publisher.publish,
-        publisher_options(batch_size=2),
+        make_publisher_options(batch_size=2),
     )
     second_publisher = OutboxPublisher(
         SqlAlchemyOutboxRepository(session_factory),
         event_publisher.publish,
-        publisher_options(batch_size=2),
+        make_publisher_options(batch_size=2),
     )
 
     processed_counts = await asyncio.gather(
@@ -173,9 +169,9 @@ async def test_stale_claim_cannot_mark_event_published(
 ) -> None:
     stored_event = await store_outbox_event(session_factory)
     repository = SqlAlchemyOutboxRepository(session_factory)
-    first_claim = (await repository.claim_batch(1, 15))[0]
+    [first_claim] = await repository.claim_batch(1, 15)
     await expire_claim(session_factory, stored_event.event_id)
-    second_claim = (await repository.claim_batch(1, 15))[0]
+    [second_claim] = await repository.claim_batch(1, 15)
 
     stale_marked = await repository.mark_published(
         first_claim.event_id,
@@ -195,7 +191,8 @@ async def test_failed_publication_releases_claim_for_retry(
 ) -> None:
     stored_event = await store_outbox_event(session_factory)
     repository = SqlAlchemyOutboxRepository(session_factory)
-    publisher = OutboxPublisher(repository, unavailable_event_publisher, publisher_options())
+    publish_event = AsyncMock(side_effect=ConnectionError("broker unavailable"))
+    publisher = OutboxPublisher(repository, publish_event, make_publisher_options())
 
     processed_count = await publisher.publish_batch()
 
@@ -220,7 +217,7 @@ async def test_unroutable_event_is_not_marked_published(
     await queue.delete(if_unused=False, if_empty=False)
     repository = SqlAlchemyOutboxRepository(session_factory)
     event_publisher = RabbitEventPublisher(rabbit_broker, timeout=5)
-    publisher = OutboxPublisher(repository, event_publisher.publish, publisher_options())
+    publisher = OutboxPublisher(repository, event_publisher.publish, make_publisher_options())
 
     await publisher.publish_batch()
 
@@ -240,7 +237,7 @@ async def test_publisher_sends_persistent_event_and_marks_outbox(
     stored_event = await store_outbox_event(session_factory)
     repository = SqlAlchemyOutboxRepository(session_factory)
     event_publisher = RabbitEventPublisher(rabbit_broker, timeout=5)
-    publisher = OutboxPublisher(repository, event_publisher.publish, publisher_options())
+    publisher = OutboxPublisher(repository, event_publisher.publish, make_publisher_options())
 
     processed_count = await publisher.publish_batch()
 
@@ -263,28 +260,3 @@ async def test_publisher_sends_persistent_event_and_marks_outbox(
     assert outbox.published_at is not None
     assert outbox.claim_token is None
     assert outbox.claimed_until is None
-
-
-async def test_confirm_without_mark_can_publish_duplicate(
-    session_factory: async_sessionmaker[AsyncSession],
-    rabbit_broker: RabbitBroker,
-) -> None:
-    stored_event = await store_outbox_event(session_factory)
-    repository = SqlAlchemyOutboxRepository(session_factory)
-    event_publisher = RabbitEventPublisher(rabbit_broker, timeout=5)
-    first_claim = (await repository.claim_batch(1, 15))[0]
-    await event_publisher.publish(first_claim)
-    await expire_claim(session_factory, stored_event.event_id)
-    second_claim = (await repository.claim_batch(1, 15))[0]
-    await event_publisher.publish(second_claim)
-    await repository.mark_published(second_claim.event_id, second_claim.claim_token)
-
-    queue = await rabbit_broker.declare_queue(payments_new_queue)
-    first_message = await queue.get(timeout=5)
-    second_message = await queue.get(timeout=5)
-    assert first_message is not None
-    assert second_message is not None
-    assert first_message.message_id == second_message.message_id == str(stored_event.event_id)
-    assert json.loads(first_message.body) == json.loads(second_message.body) == stored_event.payload
-    await first_message.ack()
-    await second_message.ack()

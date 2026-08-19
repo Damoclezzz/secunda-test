@@ -53,7 +53,7 @@ async def accept_payment(
             detail="Idempotency key is already used for another request",
         ) from error
 
-    return PaymentAcceptedResponse.from_payment(payment)
+    return PaymentAcceptedResponse.create_from_payment(payment)
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
@@ -66,4 +66,4 @@ async def retrieve_payment(
     if payment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
 
-    return PaymentResponse.from_payment(payment)
+    return PaymentResponse.create_from_payment(payment)

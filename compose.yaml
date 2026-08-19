@@ -90,6 +90,36 @@ services:
       timeout: 5s
       retries: 3
 
+  consumer:
+    build: .
+    command: ["python", "-m", "payment_service.entrypoints.consumer"]
+    deploy:
+      replicas: 2
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT}"
+      LOG_LEVEL: "${LOG_LEVEL}"
+      API_KEY: "${API_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+      RABBITMQ_URL: "${RABBITMQ_URL}"
+      PROCESSING_CLAIM_SECONDS: "${PROCESSING_CLAIM_SECONDS}"
+      PROCESSING_CLAIM_POLL_INTERVAL: "${PROCESSING_CLAIM_POLL_INTERVAL}"
+      PAYMENT_PROCESSING_MIN_DELAY: "${PAYMENT_PROCESSING_MIN_DELAY}"
+      PAYMENT_PROCESSING_MAX_DELAY: "${PAYMENT_PROCESSING_MAX_DELAY}"
+      PAYMENT_PROCESSING_SUCCESS_RATE: "${PAYMENT_PROCESSING_SUCCESS_RATE}"
+      WEBHOOK_TIMEOUT: "${WEBHOOK_TIMEOUT}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "payment_service.entrypoints.messaging_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   postgres-data:
   rabbitmq-data:

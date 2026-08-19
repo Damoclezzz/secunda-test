@@ -44,7 +44,7 @@ class FakePaymentRepository:
         return None
 
 
-def payment_input(amount: str = "100.00") -> PaymentInput:
+def make_payment_input(amount: str = "100.00") -> PaymentInput:
     return PaymentInput(
         amount=Decimal(amount),
         currency=Currency.RUB,
@@ -54,7 +54,7 @@ def payment_input(amount: str = "100.00") -> PaymentInput:
     )
 
 
-def existing_payment() -> Payment:
+def make_existing_payment() -> Payment:
     return Payment(
         id=uuid4(),
         amount=Decimal("100.00"),
@@ -71,7 +71,7 @@ def existing_payment() -> Payment:
 async def test_create_payment_produces_matching_event() -> None:
     repository = FakePaymentRepository()
 
-    payment = await create_payment(repository, payment_input(), "payment-key")
+    payment = await create_payment(repository, make_payment_input(), "payment-key")
 
     assert repository.inserted_event is not None
     assert repository.inserted_event.payment_id == payment.id
@@ -79,16 +79,16 @@ async def test_create_payment_produces_matching_event() -> None:
 
 
 async def test_create_payment_replays_matching_request() -> None:
-    stored_payment = existing_payment()
+    stored_payment = make_existing_payment()
     repository = FakePaymentRepository(stored_payment)
 
-    payment = await create_payment(repository, payment_input(), "payment-key")
+    payment = await create_payment(repository, make_payment_input(), "payment-key")
 
     assert payment == stored_payment
 
 
 async def test_create_payment_rejects_different_request() -> None:
-    repository = FakePaymentRepository(existing_payment())
+    repository = FakePaymentRepository(make_existing_payment())
 
     with pytest.raises(IdempotencyConflictError):
-        await create_payment(repository, payment_input("200.00"), "payment-key")
+        await create_payment(repository, make_payment_input("200.00"), "payment-key")

@@ -50,9 +50,28 @@ class Payment:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedPayment:
+    id: UUID
+    amount: Decimal
+    currency: Currency
+    status: PaymentStatus
+    webhook_url: str
+    processed_at: datetime | None
+    processing_token: UUID
+
+
 class DuplicateIdempotencyKeyError(Exception):
     pass
 
 
 class IdempotencyConflictError(Exception):
+    pass
+
+
+class PaymentNotFoundError(Exception):
+    pass
+
+
+class ProcessingClaimLostError(Exception):
     pass

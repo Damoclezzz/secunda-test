@@ -22,7 +22,7 @@ class PaymentAcceptedResponse(BaseModel):
     created_at: datetime
 
     @classmethod
-    def from_payment(cls, payment: Payment) -> PaymentAcceptedResponse:
+    def create_from_payment(cls, payment: Payment) -> PaymentAcceptedResponse:
         return cls(
             payment_id=payment.id,
             status=payment.status,
@@ -42,7 +42,7 @@ class PaymentResponse(BaseModel):
     processed_at: datetime | None
 
     @classmethod
-    def from_payment(cls, payment: Payment) -> PaymentResponse:
+    def create_from_payment(cls, payment: Payment) -> PaymentResponse:
         return cls(
             id=payment.id,
             amount=payment.amount,

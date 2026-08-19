@@ -7,7 +7,10 @@ PAYMENTS_RETRY_2S = "payments.retry.2s"
 PAYMENTS_DLQ = "payments.dlq"
 
 
-def dead_letter_arguments(routing_key: str, message_ttl: int | None = None) -> QuorumQueueArgs:
+def make_dead_letter_arguments(
+    routing_key: str,
+    message_ttl: int | None = None,
+) -> QuorumQueueArgs:
     arguments: QuorumQueueArgs = {
         "x-dead-letter-exchange": "",
         "x-dead-letter-routing-key": routing_key,
@@ -24,17 +27,17 @@ def dead_letter_arguments(routing_key: str, message_ttl: int | None = None) -> Q
 payments_new_queue = RabbitQueue(
     PAYMENTS_NEW,
     queue_type=QueueType.QUORUM,
-    arguments=dead_letter_arguments(PAYMENTS_DLQ),
+    arguments=make_dead_letter_arguments(PAYMENTS_DLQ),
 )
 payments_retry_1s_queue = RabbitQueue(
     PAYMENTS_RETRY_1S,
     queue_type=QueueType.QUORUM,
-    arguments=dead_letter_arguments(PAYMENTS_NEW, message_ttl=1000),
+    arguments=make_dead_letter_arguments(PAYMENTS_NEW, message_ttl=1000),
 )
 payments_retry_2s_queue = RabbitQueue(
     PAYMENTS_RETRY_2S,
     queue_type=QueueType.QUORUM,
-    arguments=dead_letter_arguments(PAYMENTS_NEW, message_ttl=2000),
+    arguments=make_dead_letter_arguments(PAYMENTS_NEW, message_ttl=2000),
 )
 dlq_arguments: QuorumQueueArgs = {
     "x-overflow": "reject-publish",

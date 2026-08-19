@@ -55,7 +55,7 @@ class SqlAlchemyPaymentRepository:
         )
         record = result.scalar_one_or_none()
 
-        return record.to_payment() if record is not None else None
+        return record.convert_to_payment() if record is not None else None
 
     async def get_by_idempotency_key(self, idempotency_key: str) -> Payment | None:
         result = await self.session.execute(
@@ -63,4 +63,4 @@ class SqlAlchemyPaymentRepository:
         )
         record = result.scalar_one_or_none()
 
-        return record.to_payment() if record is not None else None
+        return record.convert_to_payment() if record is not None else None

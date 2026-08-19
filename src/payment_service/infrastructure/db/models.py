@@ -73,7 +73,7 @@ class PaymentRecord(Base):
     )
     webhook_last_error: Mapped[str | None] = mapped_column(Text)
 
-    def to_payment(self) -> Payment:
+    def convert_to_payment(self) -> Payment:
         return Payment(
             id=self.id,
             amount=self.amount,
