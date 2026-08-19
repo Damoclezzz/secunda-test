@@ -1,4 +1,5 @@
 import os
+import subprocess
 from collections.abc import AsyncIterator
 
 import pytest
@@ -22,6 +23,17 @@ from payment_service.settings import Settings
 
 
 @pytest.fixture(scope="session")
+def migrate_test_database(database_url: str) -> None:
+    environment = os.environ.copy()
+    environment["DATABASE_URL"] = database_url
+    subprocess.run(
+        ["alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+    )
+
+
+@pytest.fixture(scope="session")
 def database_url() -> str:
     value = os.getenv("TEST_DATABASE_URL")
     if value is None:
@@ -40,7 +52,10 @@ def rabbitmq_url() -> str:
 
 
 @pytest_asyncio.fixture
-async def database_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
+async def database_engine(
+    database_url: str,
+    migrate_test_database: None,
+) -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(database_url)
 
     async with engine.begin() as connection:

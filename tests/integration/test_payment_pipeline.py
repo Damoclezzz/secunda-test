@@ -1,6 +1,7 @@
 import asyncio
 from http import HTTPStatus
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import httpx
@@ -28,17 +29,19 @@ from payment_service.payments.processor import PaymentProcessor
 from payment_service.payments.simulator import PaymentProcessingSimulator
 
 
-async def test_payment_flows_from_api_through_outbox_to_webhook(
+async def test_payment_pipeline_runs_from_api_through_outbox_to_webhook(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     rabbitmq_url: str,
     rabbit_broker: RabbitBroker,
 ) -> None:
-    webhook = RecordingWebhook()
-    async with httpx.AsyncClient(transport=httpx.MockTransport(webhook.respond)) as http_client:
+    simulator = AsyncMock(spec=PaymentProcessingSimulator)
+    simulator.simulate.return_value = PaymentStatus.SUCCEEDED
+    webhook = AsyncMock(return_value=httpx.Response(204))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(webhook)) as http_client:
         processor = PaymentProcessor(
             SqlAlchemyPaymentProcessingRepository(session_factory),
-            SuccessfulPaymentProcessingSimulator(),
+            simulator,
             WebhookClient(http_client),
             claim_seconds=15,
             claim_poll_interval=0.01,
@@ -100,29 +103,12 @@ async def test_payment_flows_from_api_through_outbox_to_webhook(
     assert get_response.json()["status"] == PaymentStatus.SUCCEEDED.value
     assert outbox is not None
     assert outbox.published_at is not None
-    assert len(webhook.requests) == 1
+    simulator.simulate.assert_awaited_once()
+    webhook.assert_awaited_once()
     assert remaining_message is None
 
 
-class SuccessfulPaymentProcessingSimulator(PaymentProcessingSimulator):
-    def __init__(self) -> None:
-        super().__init__(min_delay=0, max_delay=0, success_rate=1)
-
-    async def simulate(self) -> PaymentStatus:
-        return PaymentStatus.SUCCEEDED
-
-
-class RecordingWebhook:
-    def __init__(self) -> None:
-        self.requests: list[httpx.Request] = []
-
-    async def respond(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-
-        return httpx.Response(204)
-
-
-def make_api_headers(idempotency_key: str | None = "e2e-payment-key") -> dict[str, str]:
+def make_api_headers(idempotency_key: str | None = "pipeline-payment-key") -> dict[str, str]:
     headers = {"X-API-Key": "test-api-key"}
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
@@ -134,8 +120,8 @@ def make_payment_body() -> dict[str, Any]:
     return {
         "amount": "100.50",
         "currency": "RUB",
-        "description": "End-to-end payment",
-        "metadata": {"source": "e2e"},
+        "description": "Pipeline payment",
+        "metadata": {"source": "integration"},
         "webhook_url": "https://example.com/webhooks/payments",
     }
 
