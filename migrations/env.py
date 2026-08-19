@@ -6,13 +6,14 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from payment_service.infrastructure.db.models import Base
 from payment_service.settings import get_settings
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def do_run_migrations(connection: Connection) -> None:
