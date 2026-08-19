@@ -2,18 +2,34 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_DB: payments
-      POSTGRES_USER: payments
-      POSTGRES_PASSWORD: payments
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 3s
       retries: 15
     volumes:
       - postgres-data:/var/lib/postgresql
+
+  rabbitmq:
+    image: rabbitmq:4.3.4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD}"
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
 
   api:
     build: .
@@ -22,12 +38,13 @@ services:
       - -c
       - alembic upgrade head && exec uvicorn payment_service.entrypoints.api:create_app --factory --host 0.0.0.0 --port 8000
     environment:
-      ENVIRONMENT: local
-      LOG_LEVEL: INFO
-      API_KEY: local-development-api-key
-      DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+      ENVIRONMENT: "${ENVIRONMENT}"
+      LOG_LEVEL: "${LOG_LEVEL}"
+      API_KEY: "${API_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+      RABBITMQ_URL: "${RABBITMQ_URL}"
     ports:
-      - "8000:8000"
+      - "${API_PORT}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,5 +61,35 @@ services:
       timeout: 3s
       retries: 15
 
+  publisher:
+    build: .
+    command: ["python", "-m", "payment_service.entrypoints.publisher"]
+    deploy:
+      replicas: 2
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT}"
+      LOG_LEVEL: "${LOG_LEVEL}"
+      API_KEY: "${API_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+      RABBITMQ_URL: "${RABBITMQ_URL}"
+      OUTBOX_BATCH_SIZE: "${OUTBOX_BATCH_SIZE}"
+      OUTBOX_POLL_INTERVAL: "${OUTBOX_POLL_INTERVAL}"
+      OUTBOX_CLAIM_SECONDS: "${OUTBOX_CLAIM_SECONDS}"
+      OUTBOX_PUBLISH_TIMEOUT: "${OUTBOX_PUBLISH_TIMEOUT}"
+      OUTBOX_RETRY_DELAY: "${OUTBOX_RETRY_DELAY}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "payment_service.entrypoints.messaging_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   postgres-data:
+  rabbitmq-data:
