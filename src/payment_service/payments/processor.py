@@ -11,9 +11,10 @@ from payment_service.payments.models import (
     PaymentNotFoundError,
     PaymentStatus,
     ProcessingClaimLostError,
+    WebhookAttemptFailedError,
 )
 from payment_service.payments.simulator import PaymentProcessingSimulator
-from payment_service.payments.webhooks import PaymentResultWebhook
+from payment_service.payments.webhooks import PaymentResultWebhook, WebhookDeliveryError
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class PaymentProcessor:
         self.claim_seconds = claim_seconds
         self.claim_poll_interval = claim_poll_interval
 
-    async def process(self, payment_id: UUID) -> None:
+    async def process(self, payment_id: UUID, attempt: int = 1) -> None:
         payment = await self.wait_for_claim(payment_id)
         if payment is None:
             logger.info("Payment webhook was already delivered payment_id=%s", payment_id)
@@ -63,24 +64,50 @@ class PaymentProcessor:
         if not renewed:
             raise ProcessingClaimLostError(payment.id)
 
-        await self.webhook_client.deliver(
-            payment.webhook_url,
-            PaymentResultWebhook(
-                payment_id=payment.id,
-                status=status,
-                amount=payment.amount,
-                currency=payment.currency,
-                processed_at=processed_at,
-            ),
-        )
+        try:
+            await self.webhook_client.deliver(
+                payment.webhook_url,
+                PaymentResultWebhook(
+                    payment_id=payment.id,
+                    status=status,
+                    amount=payment.amount,
+                    currency=payment.currency,
+                    processed_at=processed_at,
+                ),
+            )
+        except WebhookDeliveryError as error:
+            recorded = await self.repository.record_webhook_failure(
+                payment.id,
+                payment.processing_token,
+                attempt,
+                error.reason,
+            )
+            if not recorded:
+                raise ProcessingClaimLostError(payment.id) from error
+
+            raise WebhookAttemptFailedError(
+                payment.id,
+                payment.processing_token,
+                error.reason,
+            ) from error
+
         marked = await self.repository.mark_webhook_delivered(
             payment.id,
             payment.processing_token,
+            attempt,
         )
         if not marked:
             raise ProcessingClaimLostError(payment.id)
 
         logger.info("Payment webhook delivered payment_id=%s status=%s", payment.id, status)
+
+    async def release_claim(self, error: WebhookAttemptFailedError) -> None:
+        released = await self.repository.release_claim(
+            error.payment_id,
+            error.processing_token,
+        )
+        if not released:
+            raise ProcessingClaimLostError(error.payment_id)
 
     async def wait_for_claim(self, payment_id: UUID) -> ClaimedPayment | None:
         while True:

@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     outbox_batch_size: int = Field(default=10, ge=1, le=100)
     outbox_poll_interval: float = Field(default=0.5, gt=0)
     outbox_claim_seconds: int = Field(default=15, ge=1)
-    outbox_publish_timeout: float = Field(default=5, gt=0)
+    rabbitmq_publish_timeout: float = Field(default=5, gt=0)
     outbox_retry_delay: float = Field(default=1, gt=0)
     processing_claim_seconds: int = Field(default=15, ge=1)
     processing_claim_poll_interval: float = Field(default=0.1, gt=0)
@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_timing_constraints(self) -> Self:
-        if self.outbox_claim_seconds <= self.outbox_publish_timeout:
-            raise ValueError("OUTBOX_CLAIM_SECONDS must exceed OUTBOX_PUBLISH_TIMEOUT")
+        if self.outbox_claim_seconds <= self.rabbitmq_publish_timeout:
+            raise ValueError("OUTBOX_CLAIM_SECONDS must exceed RABBITMQ_PUBLISH_TIMEOUT")
         if self.payment_processing_min_delay > self.payment_processing_max_delay:
             raise ValueError(
                 "PAYMENT_PROCESSING_MIN_DELAY must not exceed PAYMENT_PROCESSING_MAX_DELAY"

@@ -22,7 +22,7 @@ def create_publisher_app(settings: Settings | None = None) -> FastStream:
         resolved_settings.rabbitmq_url.get_secret_value(),
         default_channel=Channel(publisher_confirms=True, on_return_raises=True),
     )
-    event_publisher = RabbitEventPublisher(broker, resolved_settings.outbox_publish_timeout)
+    event_publisher = RabbitEventPublisher(broker, resolved_settings.rabbitmq_publish_timeout)
     outbox_publisher = OutboxPublisher(
         SqlAlchemyOutboxRepository(session_factory),
         event_publisher.publish,

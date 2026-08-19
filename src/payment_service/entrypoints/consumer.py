@@ -12,6 +12,9 @@ from payment_service.infrastructure.db.processing_repository import (
 )
 from payment_service.infrastructure.db.session import create_engine
 from payment_service.infrastructure.messaging.consumer import PaymentMessageHandler
+from payment_service.infrastructure.messaging.payment_retry_publisher import (
+    RabbitPaymentRetryPublisher,
+)
 from payment_service.infrastructure.messaging.topology import RabbitTopology, payments_new_queue
 from payment_service.infrastructure.webhook import WebhookClient
 from payment_service.payments.processor import PaymentProcessor
@@ -44,7 +47,10 @@ def create_consumer_app(settings: Settings | None = None) -> FastStream:
         resolved_settings.processing_claim_seconds,
         resolved_settings.processing_claim_poll_interval,
     )
-    message_handler = PaymentMessageHandler(processor)
+    message_handler = PaymentMessageHandler(
+        processor,
+        RabbitPaymentRetryPublisher(broker, resolved_settings.rabbitmq_publish_timeout),
+    )
     broker.subscriber(
         payments_new_queue,
         ack_policy=AckPolicy.MANUAL,

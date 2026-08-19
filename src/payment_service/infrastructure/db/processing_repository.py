@@ -113,6 +113,7 @@ class SqlAlchemyPaymentProcessingRepository:
         self,
         payment_id: UUID,
         processing_token: UUID,
+        attempt: int,
     ) -> bool:
         statement = (
             update(PaymentRecord)
@@ -126,8 +127,53 @@ class SqlAlchemyPaymentProcessingRepository:
             )
             .values(
                 webhook_delivered_at=datetime.now(UTC),
-                webhook_attempts=PaymentRecord.webhook_attempts + 1,
+                webhook_attempts=attempt,
                 webhook_last_error=None,
+                processing_token=None,
+                processing_claimed_until=None,
+            )
+            .returning(PaymentRecord.id)
+        )
+
+        async with self.session_factory() as session, session.begin():
+            updated_payment_id = await session.scalar(statement)
+
+        return updated_payment_id is not None
+
+    async def record_webhook_failure(
+        self,
+        payment_id: UUID,
+        processing_token: UUID,
+        attempt: int,
+        error: str,
+    ) -> bool:
+        statement = (
+            update(PaymentRecord)
+            .where(
+                PaymentRecord.id == payment_id,
+                PaymentRecord.processing_token == processing_token,
+                PaymentRecord.webhook_delivered_at.is_(None),
+            )
+            .values(
+                webhook_attempts=attempt,
+                webhook_last_error=error[:500],
+            )
+            .returning(PaymentRecord.id)
+        )
+
+        async with self.session_factory() as session, session.begin():
+            updated_payment_id = await session.scalar(statement)
+
+        return updated_payment_id is not None
+
+    async def release_claim(self, payment_id: UUID, processing_token: UUID) -> bool:
+        statement = (
+            update(PaymentRecord)
+            .where(
+                PaymentRecord.id == payment_id,
+                PaymentRecord.processing_token == processing_token,
+            )
+            .values(
                 processing_token=None,
                 processing_claimed_until=None,
             )

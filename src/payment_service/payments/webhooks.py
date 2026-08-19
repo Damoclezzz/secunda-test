@@ -15,3 +15,9 @@ class PaymentResultWebhook(BaseModel):
     amount: Decimal
     currency: Currency
     processed_at: datetime
+
+
+class WebhookDeliveryError(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason

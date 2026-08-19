@@ -75,3 +75,11 @@ class PaymentNotFoundError(Exception):
 
 class ProcessingClaimLostError(Exception):
     pass
+
+
+class WebhookAttemptFailedError(Exception):
+    def __init__(self, payment_id: UUID, processing_token: UUID, reason: str) -> None:
+        super().__init__(reason)
+        self.payment_id = payment_id
+        self.processing_token = processing_token
+        self.reason = reason
